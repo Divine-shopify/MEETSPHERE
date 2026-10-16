@@ -1,0 +1,14 @@
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  resolve: { tsconfigPaths: true },
+  test: {
+    environment: "node",
+    include: ["tests/**/*.test.ts"],
+    setupFiles: ["tests/setup.ts"],
+    // Integration tests share one database; run files serially.
+    fileParallelism: false,
+    testTimeout: 20000,
+    silent: "passed-only",
+  },
+});
