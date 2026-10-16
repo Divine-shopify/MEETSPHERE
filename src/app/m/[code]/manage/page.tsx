@@ -39,7 +39,7 @@ export default function Manage() {
     try {
       const r = await api(`/api/meetings/${code}`);
       if (!r.host) return router.replace(`/m/${code}`);
-      setMeeting({ ...r.host, branding: r.meeting.branding, services: r.services, dialIn: r.meeting.dialIn });
+      setMeeting({ ...r.host, branding: r.meeting.branding, services: r.services, dialIn: r.meeting.dialIn, googleCalendarUrl: r.googleCalendarUrl });
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) router.replace(`/signin?next=/m/${code}/manage`);
     }
@@ -71,6 +71,7 @@ export default function Manage() {
         <CopyLink code={code} title={meeting.title} />
         <div className="row small">
           <a href={`/api/meetings/${code}/ics`}>Download calendar invite (.ics)</a>
+          {meeting.googleCalendarUrl && <a href={meeting.googleCalendarUrl} target="_blank" rel="noopener">Add to Google Calendar</a>}
           {meeting.dialIn?.number && <span>· Dial in {meeting.dialIn.number}, PIN {meeting.dialIn.pin}#</span>}
         </div>
         <div className="row">

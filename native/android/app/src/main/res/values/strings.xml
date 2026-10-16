@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">MeetSphere</string>
+    <string name="title_activity_main">MeetSphere</string>
+    <string name="package_name">com.example.meetsphere</string>
+    <string name="custom_url_scheme">com.example.meetsphere</string>
+</resources>

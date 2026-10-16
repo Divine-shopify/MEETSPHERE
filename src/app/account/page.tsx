@@ -175,6 +175,23 @@ function Account() {
           <button className="small" disabled={busy || !hook.url || !hook.events.length}>Add webhook</button>
         </form>
       </section>
+      <section className="card stack">
+        <h2>Your data</h2>
+        <div className="row">
+          <a className="btn small" href="/api/account/export">Download my data (JSON)</a>
+          <button
+            className="small danger"
+            disabled={busy}
+            onClick={async () => {
+              if (prompt('This permanently deletes your account, meetings, recordings and transcripts. Type DELETE to confirm.') !== "DELETE") return;
+              const r = await run(() => api("/api/account", { method: "DELETE", body: { confirm: "DELETE" } }));
+              if (r) router.replace("/");
+            }}
+          >
+            Delete my account
+          </button>
+        </div>
+      </section>
     </main>
   );
 }

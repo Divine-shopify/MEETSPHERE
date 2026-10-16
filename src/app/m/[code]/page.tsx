@@ -176,6 +176,7 @@ export default function JoinPage() {
           {m.branding?.welcomeText && <p>{m.branding.welcomeText}</p>}
           <p className="small">
             <a href={`/api/meetings/${code}/ics`}>Add to calendar</a>
+            {data.googleCalendarUrl && <> · <a href={data.googleCalendarUrl} target="_blank" rel="noopener">Google Calendar</a></>}
             {m.dialIn?.number && <> · Dial in: <strong>{m.dialIn.number}</strong>, PIN <strong className="code">{m.dialIn.pin}</strong>#</>}
           </p>
         </div>

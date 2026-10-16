@@ -8,3 +8,4 @@ out/
 next-env.d.ts
 coverage/
 e2e-screenshots/
+dump.rdb

@@ -8,6 +8,8 @@ import { channelModes } from "@/lib/messaging";
 import { brandingFor } from "@/lib/orgs";
 import { recordingConfigured } from "@/lib/recording";
 import { viewerFor } from "@/lib/viewer";
+import { config } from "@/lib/config";
+import { googleCalendarUrl } from "@/lib/ics";
 
 type P = { code: string };
 
@@ -27,6 +29,7 @@ export const GET = route<P>(async (ctx, { code }) => {
       email: maskContact(session?.verified_email ?? null),
     },
     services: { verification: channelModes(), media: mediaConfigured(), recording: recordingConfigured() },
+    googleCalendarUrl: meeting.scheduled_at ? googleCalendarUrl(meeting, `${config.baseUrl}/m/${meeting.code}`) : null,
     // Live HLS stream for admitted participants (large-audience viewing).
     liveStreamId: viewer.kind !== "none" && meeting.stream_state !== "off" ? meeting.stream_artifact_id : null,
   };

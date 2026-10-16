@@ -1,0 +1,16 @@
+{
+  "name": "meetsphere-native",
+  "private": true,
+  "description": "Android and iOS app shells (Capacitor) that load the hosted MeetSphere web app.",
+  "scripts": {
+    "sync": "cap sync",
+    "open:android": "cap open android",
+    "open:ios": "cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.5.3",
+    "@capacitor/cli": "8.5.3",
+    "@capacitor/core": "8.5.3",
+    "@capacitor/ios": "8.5.3"
+  }
+}

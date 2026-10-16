@@ -1,5 +1,7 @@
 # Load-test plan
 
+First results on a single 4-vCPU box: [LOAD_TEST_RESULTS.md](LOAD_TEST_RESULTS.md).
+
 No capacity number may be advertised until the relevant scenario below has
 passed on the production configuration (same region, same LiveKit plan/nodes).
 
@@ -21,7 +23,7 @@ passed on the production configuration (same region, same LiveKit plan/nodes).
 | 5 | OTP abuse | 1,000 OTP starts from 50 IPs to random numbers | lab, provider in test mode | ≤ allowed sends delivered; spend stays within daily cap |
 | 6 | Reconnect | 20 participants, drop network 5–20 s | lab | ≥ 95% resume without re-admission; no duplicate participants |
 | 7 | Presentation (current SFU path) | 5 speakers, N subscribe-only viewers, step N = 50, 100, 200 | 4G | Find the N where scenario 1 criteria break; publish limit at 70% of that |
-| 8 | Broadcast (Phase 3 path, not built) | 2 presenters, 1k → 10k viewers via HLS/CDN | mixed | Viewer latency < 10 s (HLS) or < 2 s (WebRTC fan-out), < 1% rebuffer |
+| 8 | HLS live stream + CDN | 2 presenters, 1k → 10k viewers via HLS/CDN | mixed | Viewer latency < 10 s (HLS) or < 2 s (WebRTC fan-out), < 1% rebuffer |
 
 ## What to record per run
 
@@ -31,6 +33,6 @@ connections, error rates, cost per participant-minute observed.
 
 ## Known bottlenecks to watch
 
-- Waiting room and host panel poll the API every 3–4 s; at hundreds of waiting guests this is the first thing to replace (SSE/WebSockets or LiveKit data messages).
+- Server-sent events: each connected browser holds one HTTP connection to an app instance; plan ~10k per instance and scale horizontally.
 - Single Postgres; rate-limit writes on every OTP/join.
 - One LiveKit room per meeting on a single node until LiveKit is deployed multi-node.

@@ -408,3 +408,30 @@ describe("operations", () => {
     expect(names.every((r) => r.submitted_name === "Removed (retention)")).toBe(true);
   });
 });
+
+import * as account from "@/app/api/account/route";
+import * as exportRoute from "@/app/api/account/export/route";
+
+describe("personal data", () => {
+  it("exports a user's data and deletes the account with its meetings", async () => {
+    const { host, user, code, meetingId } = await hostWithMeeting({ accessPolicy: "anyone_with_link" });
+    await joinAs(code, "Guest Gina");
+    const exp = await exportRoute.GET(
+      new Request("http://localhost:3000/x", { headers: { cookie: [...host.cookies].map(([k, v]) => `${k}=${v}`).join("; ") } }),
+      { params: Promise.resolve({}) },
+    );
+    const data = await exp.json();
+    expect(data.profile.id).toBe(user.id);
+    expect(data.meetings[0].attendees[0].name).toBe("Guest Gina");
+
+    expect((await host.call(account.DELETE, { method: "DELETE", body: { confirm: "nope" } })).status).toBe(400);
+    const owner = await host.call(orgs.POST, { body: { name: "Solo Org", slug: "solo-org" } });
+    expect(owner.status).toBe(201);
+    expect((await host.call(account.DELETE, { method: "DELETE", body: { confirm: "DELETE" } })).status).toBe(409);
+    await pool().query("DELETE FROM organizations WHERE slug = 'solo-org'");
+    expect((await host.call(account.DELETE, { method: "DELETE", body: { confirm: "DELETE" } })).status).toBe(200);
+    expect((await pool().query("SELECT 1 FROM meetings WHERE id = $1", [meetingId])).rowCount).toBe(0);
+    expect((await pool().query("SELECT 1 FROM users WHERE id = $1", [user.id])).rowCount).toBe(0);
+    expect((await host.call(account.GET, {})).status).toBe(401);
+  });
+});

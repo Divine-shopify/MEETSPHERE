@@ -3,121 +3,119 @@
 ## Stack
 
 - **Next.js 15 (App Router) + React 19 + TypeScript**: UI and API route handlers in one deployable.
-- **PostgreSQL** via `pg` with plain SQL migrations (`migrations/*.sql`, `scripts/migrate.ts`).
-- **LiveKit** (SFU) for audio/video/screen share/data. The browser uses
-  `livekit-client` + `@livekit/components-react`; the server uses
-  `livekit-server-sdk` to mint tokens and moderate rooms.
-- **Twilio** (SMS) and **Resend** (email) over plain HTTPS for OTP delivery.
+- **PostgreSQL** with plain SQL migrations (`migrations/`), also the real-time bus (LISTEN/NOTIFY) and rate limiter.
+- **LiveKit**: SFU for audio/video/screen/data; **Egress** for recordings (MP4) and live streams (HLS); **SIP** for phone dial-in/out.
+- **Twilio** (SMS), **Resend** (email), **Stripe** (billing), **Anthropic Claude** (meeting notes), any **OIDC** IdP (SSO), **S3-compatible** storage — all optional, over HTTPS.
 
 ```
-Browser ──HTTPS──▶ Next.js API ──▶ PostgreSQL
-   │                    │
-   │                    ├──▶ Twilio / Resend (OTP)
-   │                    └──▶ LiveKit RoomService (kick, mute, permissions)
-   └──WebRTC──▶ LiveKit SFU ──webhook──▶ /api/livekit/webhook
+                   ┌───────────────── Next.js app (stateless, N instances) ─────────────────┐
+Browser / PWA ─────┤ pages · API routes · SSE /events · webhooks (LiveKit, Stripe)          │
+Native shell       └──┬─────────────┬──────────────┬───────────────┬────────────────┬──────┘
+   │  WebRTC          │ SQL/NOTIFY  │ Server API    │ OTP/invites   │ billing/AI/SSO │
+   ▼                  ▼             ▼               ▼               ▼                ▼
+LiveKit SFU ◀──── PostgreSQL     LiveKit API     Twilio/Resend   Stripe/Claude/IdP
+  │  ▲ webhooks                    │
+  │  └─────────────────────────────┤
+  ▼                                ▼
+Egress (Chrome compositor) ──▶ S3 / shared disk ──▶ HLS viewers (CDN) · replays
+SIP gateway ◀──▶ phone network
 ```
 
 ## Code map
 
 | Path | Responsibility |
 | --- | --- |
-| `src/lib/policy.ts` | Pure admission rules (`evaluateAdmission`) and identity badges |
-| `src/lib/admission.ts` | Join requests, host decisions, blocks, **the only path to a media token** |
-| `src/lib/verification.ts` | OTP start/check, hashing, attempt caps, rate limits, sign-in |
-| `src/lib/invitations.ts` | Expected-attendee list, CSV parsing, invite matching |
-| `src/lib/meetings.ts` | Meeting CRUD, settings, lock/end, public vs host views |
-| `src/lib/media.ts` | LiveKit tokens, grants, room moderation, webhook receiver |
-| `src/lib/http.ts` | Route wrapper: sessions, CSRF origin check, JSON validation, error mapping |
-| `src/lib/plans.ts` | Configurable plan limits (no duration limit) |
-| `src/app/api/**` | Thin route handlers over the services above |
-| `src/app/m/[code]` | Join flow → waiting room → device check → room |
-| `src/components/Room.tsx`, `HostPanel.tsx` | Meeting room and live host controls |
+| `src/lib/policy.ts` | Pure admission rules and identity badges |
+| `src/lib/admission.ts` | Join requests, moderation actions, **the only path to a media token**, phone-caller admission |
+| `src/lib/viewer.ts` | Resolves the acting person in a meeting (host / co-host / participant / none) |
+| `src/lib/verification.ts` | OTP start/check, hashing, attempt caps, rate limits, sign-in, SSO enforcement |
+| `src/lib/events.ts`, `useMeetingEvents.ts` | Postgres NOTIFY → server-sent events with per-audience filtering |
+| `src/lib/meetings.ts`, `presets.ts`, `ics.ts` | Settings, recurrence, reopen, presets, calendar export |
+| `src/lib/invitations.ts` | Invite list, CSV, matching, sending by SMS/email |
+| `src/lib/qa.ts`, `polls.ts`, `whiteboard.ts`, `breakouts.ts` | In-meeting collaboration |
+| `src/lib/transcripts.ts`, `notes.ts` | Consent-gated captions, transcripts, AI notes, full-text search |
+| `src/lib/recording.ts`, `storage.ts`, `replay.ts` | Egress recording/HLS, local/S3 storage, replay access |
+| `src/lib/telephony.ts` | SIP dial-in rules and dial-out |
+| `src/lib/plans.ts`, `usage.ts`, `billing.ts`, `accounting.ts` | Entitlements, metering, Stripe |
+| `src/lib/orgs.ts`, `sso.ts`, `secretbox.ts` | Organizations, OIDC SSO, encrypted secrets |
+| `src/lib/webhooks.ts`, `webhookEndpoints.ts`, `netguard.ts` | Outgoing webhooks, SSRF guard |
+| `src/lib/safety.ts`, `retention.ts`, `admin.ts` | Safety signals, data retention, platform admin |
+| `src/components/Room.tsx` + panels | Meeting room UI |
 
 ## Admission model
 
-Every browser gets an opaque session cookie (HttpOnly, SameSite=Lax; only the
-SHA-256 of the token is stored). A guest verifies a phone or email **on that
-session**; there is no account needed to join.
-
-A join request is unique per `(meeting, session)`. Once decided, the decision
-sticks: a rejected, removed or blocked session gets the same answer back
-instead of a new request.
-
-`evaluateAdmission` (pure function, fully unit tested) decides:
+Every browser gets an opaque session cookie (HttpOnly, SameSite=Lax; only its
+SHA-256 is stored). A guest verifies a phone/email **on that session**; no account needed.
+Join requests are unique per (meeting, session) and decisions stick.
 
 | Policy | Verified invitee | Verified, not invited | Name only |
 | --- | --- | --- | --- |
 | Anyone with link | admit | admit | admit (badge: name entered) |
-| Verified only | admit | admit | wait if name requests allowed, else deny |
-| Invited only | admit if auto-admit on, else wait | wait if manual review allowed, else deny | wait if allowed, else deny |
+| Verified only | admit | admit | wait if allowed, else deny |
+| Invited only | admit if auto-admit, else wait | wait if allowed, else deny | wait if allowed, else deny |
 | Host approval | wait | wait | wait if allowed, else deny |
 
-Ended → deny. Blocked (by session, user, or verified contact) → deny. Locked → deny new requests; already-admitted people can still reconnect.
+Ended → deny. Blocked (session, user, verified contact or phone line) → deny.
+Locked → deny new requests; admitted people can reconnect. **A typed name never
+counts as identity**: equality with an invitee is a `weak_name_match` warning.
 
-**A typed name never counts as identity.** Name equality with an invitee is
-stored as `weak_name_match`, shown to the host as a warning, and never admits.
-Claiming the phone/email method without a verified contact on the session is denied.
-
-### Identity states
-
-`name_entered` (unverified) → `contact_verified` → `invited` (verified contact matches the list) → `host_approved` (host decided).
-Badges are embedded in the LiveKit token metadata by the server, and participants
-cannot update their own metadata/attributes, so they can't fake a badge.
+Roles: `host` (meeting owner), `cohost` (appointed by the host: moderation,
+not settings; can't remove another co-host), `speaker`/`audience` (presentation
+mode), `participant`. Moderator endpoints return 404 to everyone else.
 
 ## Media authorization
 
-- `POST /api/meetings/:code/token` is the only way to get a LiveKit token. It
-  requires the host's signed-in session, or an **admitted** join request bound
-  to the caller's session, and re-checks blocks.
-- Tokens are short-lived for connect (10 min) and carry exact grants:
-  `roomAdmin` only for the host; `canPublish=false` for presentation audience;
-  `canPublishSources` excludes screen share when disabled; `canPublishData=false`
-  when chat is disabled.
-- Remove/block calls LiveKit `removeParticipant` with `revokeTokenTs`, so
-  previously issued tokens can't reconnect.
-- The LiveKit webhook (`participant_joined`) kicks anyone in the room whose
-  join request isn't currently admitted: defense in depth if a token leaks or
-  races a removal.
-- Settings changes (screen share / chat) are pushed to connected participants
-  with `updateParticipant` permissions.
+- `POST /api/meetings/:code/token` is the only way to get a LiveKit token: the
+  host, or an admitted join request bound to the caller's session (blocks re-checked).
+  It also selects the room: main room, the assigned breakout room, or (moderators) any breakout.
+- Grants are exact: `roomAdmin` for host/co-host only; publish rights from role
+  and mode; screen-share and data permissions from settings; participants can't
+  edit their own name/metadata, so identity badges can't be spoofed.
+- Settings and role changes are pushed live with `updateParticipant`.
+- Remove/block calls `removeParticipant` with `revokeTokenTs` so earlier tokens
+  can't reconnect, in every room the person is in.
+- The LiveKit webhook kicks anyone in a room who isn't currently admitted
+  (defense in depth), tracks presence per room for usage and health, admits
+  PIN-verified phone callers, and applies Egress status changes.
+- Fair-use: if a host is over the monthly participant-minute cap, **new**
+  meetings can't start; meetings with people already connected continue.
 
-## Verification security
+## Real-time events
 
-- 6-digit codes, stored only as `HMAC-SHA256(APP_SECRET, challengeId:code)`.
-- Expire after 10 minutes; max 5 attempts, counted atomically before comparison.
-- Challenges are bound to the requesting session (a stolen challenge id is useless elsewhere).
-- Rate limits (Postgres-backed, multi-instance safe): 1 send per destination per 30 s,
-  5 per destination per hour, 20 per IP per hour, 10 per session per hour,
-  plus a per-host daily cap billed to the meeting's host.
-- Responses never reveal whether a contact is invited or registered (no enumeration).
-- Dev mode only when `VERIFICATION_DEV_MODE=true`, a provider is missing, **and**
-  `NODE_ENV !== production`. The UI labels it "DEV MODE - no message sent".
+Mutations publish small events (`pg_notify`) with an audience: `all`,
+`moderators`, or one join request. Each app instance holds one LISTEN
+connection and relays to its SSE clients after filtering per viewer; waiting
+guests only see events about their own request. Clients refetch details,
+so events never carry private data beyond the audience's view. Slow polling is
+kept as a fallback where proxies block SSE.
 
-## Other protections
+## Privacy and consent
 
-- CSRF: mutations reject a cross-site `Origin` / `Sec-Fetch-Site`, require
-  `application/json`, and cookies are SameSite=Lax.
-- Host endpoints return 404 to non-hosts (no existence leak); everything is
-  checked server-side, not just hidden in the UI.
-- Invitee phone numbers/emails are only returned by host-only endpoints; the
-  host's waiting room shows masked contacts.
-- Join-burst limits per IP and per meeting; token minting limited per session.
-- Security headers (nosniff, frame deny, referrer policy, permissions policy).
+- **Captions/transcripts:** opt-in per person when the host turns them on;
+  speech is recognized on the speaker's own device and only while their mic is
+  on; the server rejects segments from anyone without consent.
+- **Recording:** everyone sees a persistent indicator and must acknowledge a
+  notice (or leave); acknowledgements are stored.
+- **AI notes:** built only from consented transcript lines, host notes, Q&A
+  and poll results; plan-gated and opt-in per meeting.
+- **Replays:** host-only by default; optionally attendees or anyone with the link.
+- **Retention:** per meeting or per organization; the hourly job deletes
+  recordings and scrubs names/contacts/transcripts after the window.
+- Invitee contacts are host-only; waiting-room contacts are masked.
 
-## Data model
+## Security controls
 
-`users`, `sessions`, `verification_challenges`, `rate_limits`, `meetings`,
-`invitations`, `join_requests`, `meeting_roles`, `meeting_blocks`,
-`moderation_events` (audit trail), `meeting_artifacts` (reserved; nothing
-writes to it yet), `usage_events` (metered OTP sends). See `migrations/001_init.sql`
-for constraints and indexes.
-
-## Interactive vs presentation rooms
-
-Both currently run on the LiveKit SFU. Presentation mode makes the audience
-subscribe-only and lets the host promote a participant to speaker (the
-audience-to-speaker handoff) without exposing every audience camera. This is
-**not** the scalable viewer path: thousands of viewers need an egress →
-HLS/CDN or a LiveKit multi-node deployment, with load testing first (see
-`LOAD_TEST_PLAN.md`). Capacity is capped by `FREE_MAX_PARTICIPANTS` via the
-room's `maxParticipants`.
+- OTP: 6 digits, HMAC-SHA256 with `APP_SECRET`, 10-minute expiry, 5 attempts
+  (counted before comparison), bound to the requesting session; send limits per
+  destination/IP/session plus a per-host daily cap; no enumeration.
+- CSRF: cross-site `Origin`/`Sec-Fetch-Site` rejected on mutations, JSON-only bodies.
+- SSRF: user-supplied URLs (webhooks, OIDC issuers) are resolved and refused if
+  they point at private, loopback or link-local addresses; no redirects.
+- SSO: authorization code + PKCE, state bound to the browser session and
+  single-use, ID token verified against the IdP's JWKS (issuer, audience, nonce),
+  client secrets encrypted at rest (AES-256-GCM).
+- Webhooks out: HMAC-SHA256 signatures with timestamps; Stripe webhooks in:
+  signature + 5-minute replay window + idempotency table.
+- Storage paths are server-generated and checked against traversal; downloads
+  are authorized per request; S3 access is via short-lived presigned URLs.
+- Security headers: HSTS, nosniff, frame-deny, strict referrer, permissions policy.
