@@ -99,7 +99,7 @@ try {
   step("hand raise visible to host");
 
   // 8. An intruder with a forged/old approach can't get in once the meeting is locked.
-  await host.getByRole("button", { name: /Lock meeting/ }).click();
+  await host.getByRole("button", { name: /Lock/ }).first().click();
   await host.getByRole("button", { name: /Unlock/ }).waitFor();
   await intruder.goto(`/m/${code}`);
   await intruder.getByText("The host has locked this meeting").waitFor();

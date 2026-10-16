@@ -3,16 +3,27 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Badges } from "@/components/Badges";
+import { Branding } from "@/components/Branding";
 import { DevicePreview, type DeviceChoices } from "@/components/DevicePreview";
 import { OtpForm } from "@/components/OtpForm";
 import { api, ApiError } from "@/lib/client";
+import { useMeetingEvents } from "@/lib/useMeetingEvents";
 
 const Room = dynamic(() => import("@/components/Room"), { ssr: false, loading: () => <p className="container">Connecting…</p> });
 
 type Method = "phone" | "email" | "name";
 const METHOD_LABEL: Record<Method, string> = { phone: "Phone number", email: "Email", name: "Just my name" };
+
+interface Media {
+  token: string;
+  url: string;
+  role: string;
+  room: string;
+  breakoutId: string | null;
+  choices: DeviceChoices;
+}
 
 export default function JoinPage() {
   const { code } = useParams<{ code: string }>();
@@ -23,8 +34,10 @@ export default function JoinPage() {
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [media, setMedia] = useState<{ token: string; url: string; role: string; settings: any; choices: DeviceChoices } | null>(null);
+  const [media, setMedia] = useState<Media | null>(null);
   const [left, setLeft] = useState<string | null>(null);
+  const mediaRef = useRef<Media | null>(null);
+  mediaRef.current = media;
 
   const load = useCallback(async () => {
     try {
@@ -40,20 +53,23 @@ export default function JoinPage() {
     load();
   }, [load]);
 
-  // Waiting room: poll for the host's decision (also after a rejection/removal, in case the host lets them back in).
+  // Before joining: live updates about our own request (admitted/rejected) and the meeting (locked/ended).
   const status = data?.myRequest?.status;
+  useMeetingEvents(
+    code,
+    {
+      request_updated: () => load(),
+      settings_changed: () => load(),
+      meeting_ended: () => load(),
+    },
+    { enabled: !media && !!data, onReconnect: () => load() },
+  );
+  // Safety net if events are blocked by a proxy: slow poll while waiting.
   useEffect(() => {
-    if (status !== "pending" && status !== "rejected" && status !== "removed") return;
-    const t = setInterval(async () => {
-      try {
-        const r = await api(`/api/meetings/${code}/join`);
-        if (r.request?.status !== status) load();
-      } catch {
-        /* keep polling; transient network errors are expected on mobile */
-      }
-    }, status === "pending" ? 3000 : 6000);
+    if (media || (status !== "pending" && status !== "rejected" && status !== "removed")) return;
+    const t = setInterval(load, status === "pending" ? 10000 : 20000);
     return () => clearInterval(t);
-  }, [status, code, load]);
+  }, [status, media, load]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -70,13 +86,21 @@ export default function JoinPage() {
     }
   }
 
+  const fetchToken = useCallback(
+    async (choices: DeviceChoices, visit?: string | null) => {
+      const t = await api(`/api/meetings/${code}/token`, { body: { room: visit ?? undefined } });
+      return { token: t.token, url: t.url, role: t.role, room: t.room, breakoutId: t.breakoutId, choices } as Media;
+    },
+    [code],
+  );
+
   async function connect(choices: DeviceChoices) {
     setError(null);
     setBusy(true);
     try {
-      const t = await api(`/api/meetings/${code}/token`, { body: {} });
+      const m = await fetchToken(choices);
       setLeft(null);
-      setMedia({ ...t, choices });
+      setMedia(m);
     } catch (err) {
       setError((err as Error).message);
       load();
@@ -85,15 +109,35 @@ export default function JoinPage() {
     }
   }
 
-  if (media) {
+  /** Breakouts opened/closed or a moderator visits a room: reconnect only if the target room changed. */
+  const refreshRoom = useCallback(
+    async (visit?: string | null) => {
+      const cur = mediaRef.current;
+      if (!cur) return;
+      try {
+        const next = await fetchToken(cur.choices, visit);
+        if (next.room !== cur.room) setMedia(next);
+      } catch {
+        /* stay where we are */
+      }
+    },
+    [fetchToken],
+  );
+
+  if (media && data) {
     return (
       <Room
+        key={media.room}
         code={code}
-        title={data.meeting.title}
+        meeting={data.meeting}
+        viewer={data.viewer}
         token={media.token}
         serverUrl={media.url}
         role={media.role}
+        breakoutId={media.breakoutId}
         choices={media.choices}
+        onRefreshRoom={refreshRoom}
+        onMeetingChanged={load}
         onLeave={(reason) => {
           setMedia(null);
           setLeft(reason);
@@ -112,12 +156,13 @@ export default function JoinPage() {
   const req = data.myRequest;
   const methods: Method[] = m.allowedMethods.filter((x: Method) => x === "name" || modes[x] !== "unavailable");
   const alreadyVerified = (x: Method) => verifiedNow[x] ?? (x === "phone" ? data.myVerified.phone : x === "email" ? data.myVerified.email : null);
-  const canPublishByDefault = m.mode === "interactive" || isHost;
+  const canPublishByDefault = m.mode === "interactive" || isHost || data.viewer.moderator || data.viewer.role === "speaker";
+  const audience = m.mode === "broadcast" && !isHost && !data.viewer.moderator && data.viewer.role !== "speaker";
 
   return (
     <main className="container stack">
       <header className="row spread">
-        <Link href="/"><strong>MeetSphere</strong></Link>
+        <Branding branding={m.branding} />
         {isHost && <Link href={`/m/${code}/manage`}>Manage</Link>}
       </header>
       <section className="card stack">
@@ -128,14 +173,20 @@ export default function JoinPage() {
             {m.mode === "broadcast" ? " · Presentation" : ""}
             {m.scheduledAt ? ` · ${new Date(m.scheduledAt).toLocaleString()}` : ""}
           </p>
+          {m.branding?.welcomeText && <p>{m.branding.welcomeText}</p>}
+          <p className="small">
+            <a href={`/api/meetings/${code}/ics`}>Add to calendar</a>
+            {m.dialIn?.number && <> · Dial in: <strong>{m.dialIn.number}</strong>, PIN <strong className="code">{m.dialIn.pin}</strong>#</>}
+          </p>
         </div>
         {left && <div className="alert info" role="status">{left}</div>}
-        {!data.services.media && (
-          <div className="alert error">Audio/video is not configured on this server yet, so the meeting room can't connect.</div>
-        )}
+        {!data.services.media && <div className="alert error">Audio/video is not configured on this server yet, so the meeting room can't connect.</div>}
 
         {m.ended ? (
-          <p>This meeting has ended.</p>
+          <div className="stack">
+            <p>This meeting has ended.</p>
+            <Link href={`/m/${code}/replay`}>Recordings and notes (if you have access)</Link>
+          </div>
         ) : isHost ? (
           <>
             <p>You're the host.</p>
@@ -144,11 +195,23 @@ export default function JoinPage() {
         ) : req?.status === "admitted" ? (
           <>
             <p className="row">You're in as <strong>{req.name}</strong> <Badges badges={req.badges} /></p>
-            <DevicePreview canPublish={canPublishByDefault} onJoin={connect} joinLabel={busy ? "Connecting…" : "Join now"} />
+            {audience && m.streamActive ? (
+              <div className="stack">
+                <Link className="btn primary" href={`/m/${code}/watch`}>Watch the live stream</Link>
+                <p className="small muted">Uses the least data and works on any connection. You can ask questions and vote in polls there.</p>
+                <details>
+                  <summary className="small">Join the interactive room instead</summary>
+                  <DevicePreview canPublish={false} onJoin={connect} joinLabel={busy ? "Connecting…" : "Join room"} />
+                </details>
+              </div>
+            ) : (
+              <DevicePreview canPublish={canPublishByDefault} onJoin={connect} joinLabel={busy ? "Connecting…" : "Join now"} />
+            )}
           </>
         ) : req?.status === "pending" ? (
           <div className="stack" aria-live="polite">
             <div className="row"><span className="spinner" aria-hidden /> <strong>Waiting for the host to let you in…</strong></div>
+            {m.waitingMessage && <div className="alert info">{m.waitingMessage}</div>}
             <p className="muted small">Keep this page open. You asked to join as {req.name} <Badges badges={req.badges} /></p>
           </div>
         ) : req?.status === "rejected" ? (

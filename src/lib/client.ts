@@ -33,4 +33,6 @@ export const BADGE_LABELS: Record<string, string> = {
   invited: "Invited",
   host_approved: "Host approved",
   host: "Host",
+  phone_caller: "Phone caller (unverified)",
+  sso_verified: "Organization sign-in",
 };

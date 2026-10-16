@@ -27,5 +27,7 @@ export const GET = route<P>(async (ctx, { code }) => {
       email: maskContact(session?.verified_email ?? null),
     },
     services: { verification: channelModes(), media: mediaConfigured(), recording: recordingConfigured() },
+    // Live HLS stream for admitted participants (large-audience viewing).
+    liveStreamId: viewer.kind !== "none" && meeting.stream_state !== "off" ? meeting.stream_artifact_id : null,
   };
 });

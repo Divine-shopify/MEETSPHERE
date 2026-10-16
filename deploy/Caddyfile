@@ -1,0 +1,13 @@
+# Automatic HTTPS for the app and LiveKit signalling.
+{$APP_DOMAIN} {
+  encode zstd gzip
+  # Overwrite (not append) the client IP so rate limits can't be spoofed.
+  reverse_proxy app:3000 {
+    header_up X-Forwarded-For {remote_host}
+    flush_interval -1  # stream server-sent events immediately
+  }
+}
+
+{$LIVEKIT_DOMAIN} {
+  reverse_proxy host.docker.internal:7880
+}

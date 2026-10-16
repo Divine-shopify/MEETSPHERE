@@ -1,0 +1,83 @@
+# Single-host production stack. For multiple regions / high availability see docs/DEPLOYMENT.md.
+#   cp .env.example .env   # fill in values
+#   docker compose -f deploy/docker-compose.yml --env-file .env up -d
+#   docker compose -f deploy/docker-compose.yml --env-file .env run --rm migrate
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: meetsphere
+      POSTGRES_USER: meetsphere
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U meetsphere"], interval: 5s, retries: 10 }
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    network_mode: host  # LiveKit and Egress use host networking
+
+  livekit:
+    image: livekit/livekit-server:v1.10.1
+    restart: unless-stopped
+    network_mode: host  # WebRTC needs direct UDP; don't NAT it through Docker
+    command: --config /etc/livekit.yaml
+    volumes: [./livekit.yaml:/etc/livekit.yaml:ro]
+    depends_on: [redis]
+
+  egress:
+    image: livekit/egress:v1.10.0
+    restart: unless-stopped
+    network_mode: host
+    cap_add: [SYS_ADMIN]  # headless Chrome sandbox
+    environment: { EGRESS_CONFIG_FILE: /etc/egress.yaml }
+    volumes:
+      - ./egress.yaml:/etc/egress.yaml:ro
+      - recordings:/out
+    depends_on: [livekit]
+
+  app:
+    build: ..
+    image: meetsphere:latest
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgres://meetsphere:${POSTGRES_PASSWORD}@postgres:5432/meetsphere
+      RECORDINGS_DIR: /recordings
+      EGRESS_OUTPUT_DIR: /out
+    volumes: [recordings:/recordings]
+    depends_on:
+      postgres: { condition: service_healthy }
+    extra_hosts: ["host.docker.internal:host-gateway"]
+
+  migrate:
+    image: meetsphere:latest
+    profiles: [tools]
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgres://meetsphere:${POSTGRES_PASSWORD}@postgres:5432/meetsphere
+    command: ["node", "node_modules/tsx/dist/cli.mjs", "scripts/migrate.ts"]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  # Hourly housekeeping + data retention + webhook retries.
+  cron:
+    image: curlimages/curl:8.10.1
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c", "while true; do curl -fsS -X POST -H \"Authorization: Bearer $$CRON_SECRET\" http://app:3000/api/cron/cleanup; sleep 3600; done"]
+    environment: { CRON_SECRET: "${CRON_SECRET:?set CRON_SECRET}" }
+    depends_on: [app]
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN}
+      LIVEKIT_DOMAIN: ${LIVEKIT_DOMAIN:?set LIVEKIT_DOMAIN}
+    volumes: [./Caddyfile:/etc/caddy/Caddyfile:ro, caddy:/data]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    depends_on: [app]
+
+volumes: { pgdata: {}, recordings: {}, caddy: {} }

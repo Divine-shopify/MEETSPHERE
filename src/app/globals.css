@@ -129,3 +129,30 @@ th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--bord
 @media (prefers-reduced-motion: reduce) {
   .reaction, .spinner { animation: none; }
 }
+
+/* Tabs and shared bits */
+.tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--border); margin-bottom: 12px; scrollbar-width: none; }
+.tabs button { border: 0; border-radius: 8px 8px 0 0; background: transparent; color: var(--muted); white-space: nowrap; min-height: 40px; padding: 8px 12px; }
+.tabs button.active { color: var(--text); background: var(--surface); border: 1px solid var(--border); border-bottom-color: var(--surface); margin-bottom: -1px; }
+.room .tabs { border-color: #2c3444; }
+.room .tabs button { background: transparent; color: #9aa3b2; border-color: transparent; }
+.room .tabs button.active { color: #e8ebf1; background: #151a23; border: 1px solid #2c3444; border-bottom-color: #151a23; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.stat { background: var(--surface-2); border-radius: 10px; padding: 10px 12px; }
+.stat b { display: block; font-size: 1.4rem; }
+.bar { height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
+.bar > span { display: block; height: 100%; background: var(--accent); }
+.room .bar { background: #232a38; }
+.room .bar > span { background: #4a78ff; }
+.captions { position: absolute; left: 50%; transform: translateX(-50%); bottom: 96px; max-width: min(90%, 760px); background: rgba(0,0,0,.75); color: #fff; padding: 6px 12px; border-radius: 8px; font-size: 1.05rem; z-index: 6; text-align: center; }
+.captions b { color: #8fb0ff; font-weight: 600; }
+.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: grid; place-items: center; z-index: 50; padding: 16px; }
+.modal { background: var(--surface); color: var(--text); border-radius: 14px; padding: 18px; max-width: 460px; width: 100%; border: 1px solid var(--border); }
+.room .modal { background: #171c25; color: #e8ebf1; border-color: #2c3444; }
+.toast { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); background: #2456d6; color: #fff; padding: 10px 16px; border-radius: 10px; z-index: 40; max-width: 90vw; box-shadow: 0 6px 24px rgba(0,0,0,.3); }
+.rec-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #ff4d4f; margin-right: 6px; animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+.wb-canvas { width: 100%; aspect-ratio: 4 / 3; background: #fff; border-radius: 8px; touch-action: none; display: block; cursor: crosshair; }
+mark { background: #ffe066; color: #000; border-radius: 3px; padding: 0 2px; }
+.branding-bar { display: flex; align-items: center; gap: 10px; }
+.branding-bar img { height: 32px; width: auto; border-radius: 6px; }

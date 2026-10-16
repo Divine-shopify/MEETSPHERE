@@ -1,0 +1,20 @@
+# LiveKit server. Replace the key/secret (must match LIVEKIT_API_KEY/SECRET in .env).
+port: 7880
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 60000
+  use_external_ip: true
+redis:
+  address: 127.0.0.1:6379
+keys:
+  REPLACE_WITH_API_KEY: REPLACE_WITH_API_SECRET_AT_LEAST_32_CHARS
+webhook:
+  api_key: REPLACE_WITH_API_KEY
+  urls:
+    - https://REPLACE_WITH_APP_DOMAIN/api/livekit/webhook
+# TURN over TLS lets people on restrictive networks (schools, hotels) connect.
+# turn:
+#   enabled: true
+#   domain: turn.example.com
+#   tls_port: 5349

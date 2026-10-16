@@ -32,7 +32,7 @@ export default function Home() {
       <header className="row spread">
         <strong>MeetSphere</strong>
         {me?.user ? (
-          <Link href="/dashboard">My meetings</Link>
+          <span className="row small"><Link href="/dashboard">My meetings</Link><Link href="/account">Account</Link></span>
         ) : (
           <Link href="/signin">Sign in to host</Link>
         )}
@@ -60,7 +60,8 @@ export default function Home() {
         </form>
       </section>
       <p className="small muted">
-        Free meetings have no time limit in MeetSphere itself. Fair-use, capacity and media-provider limits still apply.
+        Free meetings have no time limit. Fair-use and capacity limits apply and are only checked when someone joins, never mid-meeting.
+        Works in phone browsers; add it to your home screen to use it like an app.
       </p>
     </main>
   );
