@@ -1,6 +1,6 @@
 import { hostOf } from "@/lib/guards";
 import { route } from "@/lib/http";
-import { listIdentities, parseIdentity, updatePermissions } from "@/lib/media";
+import { parseIdentity, updatePermissions } from "@/lib/media";
 import { hostView, settingsSchema, updateSettings } from "@/lib/meetings";
 import { query } from "@/lib/db";
 import type { MediaRole } from "@/lib/media";
@@ -13,8 +13,11 @@ export const PATCH = route<P>(async (ctx, { code }) => {
   const updated = await updateSettings(meeting, user.id, patch);
 
   // Push permission changes (screen share / chat) to people already in the room.
-  if (patch.allowScreenShare !== undefined || patch.chatEnabled !== undefined) {
-    const identities = await listIdentities(updated);
+  if (patch.allowScreenShare !== undefined || patch.chatEnabled !== undefined || patch.mode !== undefined) {
+    const identities = (await query<{ identity: string }>(
+      "SELECT DISTINCT identity FROM participant_sessions WHERE meeting_id = $1 AND left_at IS NULL",
+      [updated.id],
+    )).map((r) => r.identity);
     const roles = await query<{ id: string; role: MediaRole }>(
       `SELECT jr.id, r.role FROM join_requests jr
          JOIN meeting_roles r ON r.meeting_id = jr.meeting_id AND r.guest_session_id = jr.session_id

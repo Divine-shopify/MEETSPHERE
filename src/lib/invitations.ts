@@ -170,3 +170,77 @@ export async function matchInvitation(
   if (byName) return { match: "weak_name_match", invitationId: byName.id, expectedName: byName.expected_name };
   return { match: "none", invitationId: null, expectedName: null };
 }
+
+/**
+ * Sends the meeting link to invitees by SMS and/or email. Without configured
+ * providers nothing is sent and the caller is told so (never a fake success).
+ */
+export async function sendInvitations(
+  m: { id: string; code: string; title: string; host_user_id: string; org_id: string | null; scheduled_at: string | null },
+  hostName: string,
+  opts: { invitationIds?: string[]; ics?: string | null; baseUrl: string },
+): Promise<{ sms: number; email: number; skipped: number; unavailable: string[] }> {
+  const { channelModes, sendEmail, sendSms } = await import("./messaging");
+  const { planForMeeting } = await import("./plans");
+  const { dailyUsage, recordUsage } = await import("./usage");
+  const modes = channelModes();
+  const targets = await query<InvitationRow>(
+    `SELECT id, expected_name, normalized_phone, normalized_email, invite_status, created_at FROM invitations
+      WHERE meeting_id = $1 AND invite_status <> 'revoked' ${opts.invitationIds ? "AND id = ANY($2::uuid[])" : ""}`,
+    opts.invitationIds ? [m.id, opts.invitationIds] : [m.id],
+  );
+  const plan = await planForMeeting(m);
+  const owner = { orgId: m.org_id, userId: m.host_user_id };
+  let remaining = plan.inviteSendsPerDay - (await dailyUsage(owner, ["invite_sms", "invite_email"]));
+  const link = `${opts.baseUrl}/m/${m.code}`;
+  const when = m.scheduled_at ? ` on ${new Date(m.scheduled_at).toUTCString()}` : "";
+  const text = `${hostName} invited you to "${m.title}"${when} on MeetSphere. Join from your phone or computer: ${link}`;
+  const unavailable = new Set<string>();
+  let sms = 0;
+  let email = 0;
+  let skipped = 0;
+
+  for (const t of targets) {
+    if (remaining <= 0) {
+      skipped++;
+      continue;
+    }
+    let sent = false;
+    // Prefer email (cheaper) when both exist; send SMS when it's the only contact.
+    if (t.normalized_email) {
+      if (modes.email === "provider") {
+        try {
+          await sendEmail(
+            t.normalized_email,
+            `Invitation: ${m.title}`,
+            `Hi ${t.expected_name},\n\n${text}\n\nWhen you join, verify this email address to be let in as an invited guest.`,
+            opts.ics ? [{ filename: "invite.ics", content: Buffer.from(opts.ics).toString("base64") }] : [],
+          );
+          await recordUsage({ kind: "invite_email", hostUserId: m.host_user_id, orgId: m.org_id, meetingId: m.id });
+          email++;
+          sent = true;
+        } catch {
+          /* fall through to SMS */
+        }
+      } else unavailable.add("email");
+    }
+    if (!sent && t.normalized_phone) {
+      if (modes.phone === "provider") {
+        try {
+          await sendSms(t.normalized_phone, text);
+          await recordUsage({ kind: "invite_sms", hostUserId: m.host_user_id, orgId: m.org_id, meetingId: m.id });
+          sms++;
+          sent = true;
+        } catch {
+          /* counted as skipped */
+        }
+      } else unavailable.add("phone");
+    }
+    if (sent) {
+      remaining--;
+      await pool().query("UPDATE invitations SET last_sent_at = now(), send_count = send_count + 1 WHERE id = $1", [t.id]);
+    } else skipped++;
+  }
+  await audit({ meetingId: m.id, action: "invitations_sent", actorUserId: m.host_user_id, metadata: { sms, email, skipped } });
+  return { sms, email, skipped, unavailable: [...unavailable] };
+}

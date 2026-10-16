@@ -3,6 +3,7 @@ import { applicantView, getOwnRequest, submitJoinRequest } from "@/lib/admission
 import { route } from "@/lib/http";
 import { requireMeeting } from "@/lib/meetings";
 import { enforce } from "@/lib/ratelimit";
+import { checkJoinBurst } from "@/lib/safety";
 
 type P = { code: string };
 const schema = z.object({
@@ -24,5 +25,6 @@ export const POST = route<P>(async (ctx, { code }) => {
   await enforce(`join:meeting:${meeting.id}`, 600, 60, "This meeting is receiving too many join requests. Try again in a minute.");
   const session = await ctx.ensureSession();
   const jr = await submitJoinRequest({ meeting, session, name: body.name, method: body.method });
+  await checkJoinBurst(meeting);
   return { request: applicantView(jr) };
 });

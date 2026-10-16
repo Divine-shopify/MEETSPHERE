@@ -1,26 +1,31 @@
-import { applicantView, getOwnRequest, isHost } from "@/lib/admission";
+import { applicantView, getOwnRequest } from "@/lib/admission";
+import { maskContact } from "@/lib/contact";
 import { one } from "@/lib/db";
 import { route } from "@/lib/http";
 import { mediaConfigured } from "@/lib/media";
 import { hostView, publicView, requireMeeting } from "@/lib/meetings";
 import { channelModes } from "@/lib/messaging";
-import { maskContact } from "@/lib/contact";
+import { brandingFor } from "@/lib/orgs";
+import { recordingConfigured } from "@/lib/recording";
+import { viewerFor } from "@/lib/viewer";
 
 type P = { code: string };
 
 export const GET = route<P>(async (ctx, { code }) => {
   const meeting = await requireMeeting(code);
-  const session = await ctx.session();
+  const viewer = await viewerFor(ctx, meeting);
+  const session = viewer.session;
   const host = await one<{ display_name: string }>("SELECT display_name FROM users WHERE id = $1", [meeting.host_user_id]);
   const own = await getOwnRequest(meeting, session);
   return {
-    meeting: publicView(meeting, host?.display_name ?? "Host"),
-    host: isHost(meeting, session) ? hostView(meeting) : null,
+    meeting: publicView(meeting, host?.display_name ?? "Host", await brandingFor(meeting.org_id)),
+    host: viewer.kind === "host" ? hostView(meeting) : null,
+    viewer: { kind: viewer.kind, moderator: viewer.moderator, key: viewer.key, name: viewer.name, role: viewer.role },
     myRequest: own ? applicantView(own) : null,
     myVerified: {
       phone: maskContact(session?.verified_phone ?? null),
       email: maskContact(session?.verified_email ?? null),
     },
-    services: { verification: channelModes(), media: mediaConfigured() },
+    services: { verification: channelModes(), media: mediaConfigured(), recording: recordingConfigured() },
   };
 });

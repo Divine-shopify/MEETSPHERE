@@ -21,7 +21,21 @@ export type AuditAction =
   | "media_token_issued"
   | "participant_joined"
   | "participant_left"
-  | "unauthorized_media_join_kicked";
+  | "unauthorized_media_join_kicked"
+  | "recording_started"
+  | "recording_stopped"
+  | "stream_started"
+  | "stream_stopped"
+  | "transcription_started"
+  | "transcription_stopped"
+  | "breakouts_opened"
+  | "breakouts_closed"
+  | "dialout"
+  | "invitations_sent"
+  | "safety_alert"
+  | "abuse_reported"
+  | "summary_generated"
+  | "artifact_deleted";
 
 export async function audit(
   e: {

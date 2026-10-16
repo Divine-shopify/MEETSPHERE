@@ -13,7 +13,7 @@ export function channelModes(): Record<Channel, ChannelMode> {
   };
 }
 
-async function sendSms(to: string, body: string): Promise<void> {
+export async function sendSms(to: string, body: string): Promise<void> {
   const t = config.twilio!;
   const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${t.accountSid}/Messages.json`, {
     method: "POST",
@@ -29,12 +29,17 @@ async function sendSms(to: string, body: string): Promise<void> {
   }
 }
 
-async function sendEmail(to: string, subject: string, text: string): Promise<void> {
+export async function sendEmail(
+  to: string,
+  subject: string,
+  text: string,
+  attachments: Array<{ filename: string; content: string }> = [],
+): Promise<void> {
   const r = config.resend!;
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${r.apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from: r.from, to: [to], subject, text }),
+    body: JSON.stringify({ from: r.from, to: [to], subject, text, ...(attachments.length ? { attachments } : {}) }),
   });
   if (!res.ok) {
     console.error("[messaging] email provider rejected send", res.status);

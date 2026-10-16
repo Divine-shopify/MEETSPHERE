@@ -6,6 +6,7 @@ import { one, pool, query, tx } from "./db";
 import { badRequest, HttpError, tooManyRequests } from "./errors";
 import { deliverCode, type Channel } from "./messaging";
 import { hit } from "./ratelimit";
+import { claimMemberships } from "./orgs";
 import { rotateSessionToken, type Session } from "./session";
 
 const CODE_TTL_MINUTES = 10;
@@ -48,6 +49,16 @@ export async function startVerification(opts: {
   meetingId?: string | null;
 }): Promise<StartResult> {
   const destination = normalizeDestination(opts.channel, opts.destination);
+
+  // Organizations that enforce SSO don't allow email-code sign-in for their domains.
+  if (opts.purpose === "signin" && opts.channel === "email") {
+    const org = await one<{ slug: string }>(
+      `SELECT o.slug FROM organizations o LEFT JOIN sso_configs s ON s.org_id = o.id
+        WHERE o.sso_enforced AND s.enabled AND ($1 = ANY(s.email_domains) OR $1 = ANY(o.allowed_email_domains)) LIMIT 1`,
+      [destination.split("@")[1]],
+    );
+    if (org) throw new HttpError(403, "sso_required", `Your organization requires single sign-on. Use "Sign in with SSO" (${org.slug}).`);
+  }
 
   // Abuse protection: per-destination cooldown and hourly caps per destination, IP and session.
   const checks: Array<[string, number, number]> = [
@@ -176,6 +187,7 @@ export async function checkVerification(opts: {
         db,
       );
     }
+    if (ch.channel === "email") await claimMemberships(user!.id, ch.destination, db);
     await db.query("UPDATE sessions SET user_id = $1 WHERE id = $2", [user!.id, opts.session.id]);
     const rotatedToken = await rotateSessionToken(opts.session.id, db);
     return { channel: ch.channel, destination: ch.destination, purpose: ch.purpose, userId: user!.id, rotatedToken };

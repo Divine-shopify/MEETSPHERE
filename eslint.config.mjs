@@ -16,7 +16,7 @@ const config = [
   },
   {
     // UI and tests consume loosely typed JSON from our own API. Server code stays strict.
-    files: ["src/app/**/page.tsx", "src/components/**", "src/lib/client.ts", "tests/**"],
+    files: ["src/app/**/page.tsx", "src/components/**", "src/lib/client.ts", "src/lib/useMeetingEvents.ts", "tests/**"],
     rules: { "@typescript-eslint/no-explicit-any": "off" },
   },
 ];
