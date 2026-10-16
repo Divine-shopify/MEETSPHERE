@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-type Handler = (req: Request, seg?: { params: Promise<Record<string, string>> }) => Promise<Response>;
+type Handler = (req: Request, seg: { params: Promise<any> }) => Promise<Response>;
 
 /** Minimal browser stand-in: keeps cookies and a stable IP between calls. */
 export class Browser {

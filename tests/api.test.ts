@@ -298,3 +298,27 @@ describe("media permissions", () => {
     expect(ht.video.canPublish).toBe(true);
   });
 });
+
+describe("host can reverse decisions", () => {
+  it("lets a rejected guest back in when the host approves later", async () => {
+    const { host, code } = await hostWithMeeting();
+    const guest = new Browser();
+    await guest.call(join.POST, { params: { code }, body: { name: "Gus", method: "name" } });
+    const id = (await host.call(requests.GET, { params: { code } })).body.requests[0].id;
+    await host.call(action.POST, { params: { code, id, action: "reject" }, body: {} });
+    expect((await host.call(action.POST, { params: { code, id, action: "approve" }, body: {} })).status).toBe(200);
+    expect((await guest.call(token.POST, { params: { code }, body: {} })).status).toBe(200);
+  });
+
+  it("requires unblocking before re-admitting a blocked person", async () => {
+    const { host, code } = await hostWithMeeting({ accessPolicy: "anyone_with_link" });
+    const guest = new Browser();
+    const r = await guest.call(join.POST, { params: { code }, body: { name: "Gus", method: "name" } });
+    const id = r.body.request.id;
+    await host.call(action.POST, { params: { code, id, action: "block" }, body: {} });
+    expect((await host.call(action.POST, { params: { code, id, action: "approve" }, body: {} })).status).toBe(409);
+    expect((await host.call(action.POST, { params: { code, id, action: "unblock" }, body: {} })).status).toBe(200);
+    expect((await host.call(action.POST, { params: { code, id, action: "approve" }, body: {} })).status).toBe(200);
+    expect((await guest.call(token.POST, { params: { code }, body: {} })).status).toBe(200);
+  });
+});

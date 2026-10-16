@@ -115,12 +115,12 @@ export function assertSameOrigin(req: Request): void {
 
 type Handler<P> = (ctx: RequestContext, params: P) => Promise<Response | object>;
 
-export function route<P = Record<string, never>>(fn: Handler<P>, opts: { skipOriginCheck?: boolean } = {}) {
-  return async (req: Request, segment?: { params: Promise<P> }): Promise<Response> => {
+export function route<P = Record<string, string>>(fn: Handler<P>, opts: { skipOriginCheck?: boolean } = {}) {
+  return async (req: Request, segment: { params: Promise<P> }): Promise<Response> => {
     const ctx = new RequestContext(req);
     try {
       if (req.method !== "GET" && req.method !== "HEAD" && !opts.skipOriginCheck) assertSameOrigin(req);
-      const params = segment ? await segment.params : ({} as P);
+      const params = (await segment?.params) ?? ({} as P);
       const out = await fn(ctx, params);
       return ctx.apply(out instanceof Response ? out : Response.json(out));
     } catch (err) {
