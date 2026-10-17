@@ -11,6 +11,7 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  devIndicators: false,
   output: "standalone",
   serverExternalPackages: ["pg"],
   async headers() {

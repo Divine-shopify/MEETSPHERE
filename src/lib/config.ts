@@ -49,8 +49,12 @@ export const config = {
     const from = str("EMAIL_FROM");
     return apiKey && from ? { apiKey, from } : null;
   },
+  /**
+   * On-screen codes instead of SMS/email. Never in production unless DEMO_MODE=true is also
+   * set explicitly (public demos only: anyone can then sign in as any email/phone).
+   */
   get verificationDevMode() {
-    return str("VERIFICATION_DEV_MODE") === "true" && process.env.NODE_ENV !== "production";
+    return str("VERIFICATION_DEV_MODE") === "true" && (process.env.NODE_ENV !== "production" || str("DEMO_MODE") === "true");
   },
   get freePlan() {
     return {

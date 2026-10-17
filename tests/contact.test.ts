@@ -41,3 +41,24 @@ describe("parseInvitationCsv", () => {
     expect(() => parseInvitationCsv("phone\n+447911123456\n")).toThrow(/name/);
   });
 });
+
+describe("verification dev mode", () => {
+  it("is refused in production unless DEMO_MODE is explicitly on", async () => {
+    const { config } = await import("@/lib/config");
+    const env = process.env as Record<string, string | undefined>;
+    const prev = { node: env.NODE_ENV, dev: env.VERIFICATION_DEV_MODE, demo: env.DEMO_MODE };
+    try {
+      env.VERIFICATION_DEV_MODE = "true";
+      env.NODE_ENV = "production";
+      delete env.DEMO_MODE;
+      expect(config.verificationDevMode).toBe(false);
+      env.DEMO_MODE = "true";
+      expect(config.verificationDevMode).toBe(true);
+    } finally {
+      env.NODE_ENV = prev.node;
+      env.VERIFICATION_DEV_MODE = prev.dev;
+      if (prev.demo === undefined) delete env.DEMO_MODE;
+      else env.DEMO_MODE = prev.demo;
+    }
+  });
+});
